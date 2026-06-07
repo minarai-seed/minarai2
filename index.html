@@ -20,19 +20,11 @@
         #log { margin-top: 20px; text-align: left; background: #faf8f5; padding: 12px; border-radius: 12px; max-height: 150px; overflow-y: auto; font-size: 13px; color: #555; border: 1px solid #eee; }
         .key-config { margin-top: 15px; font-size: 11px; color: #999; text-decoration: underline; cursor: pointer; }
     </style>
-    <!-- 🔥 Google公式の最新AI JavaScript SDKを読み込み -->
-    <script type="importmap">
-      {
-        "imports": {
-          "@google/genai": "https://esm.run"
-        }
-      }
-    </script>
 </head>
 <body>
 
 <div class="container">
-    <h2>☕️ カフェAI店員 (最新版)</h2>
+    <h2>☕️ カフェAI店員 (安定版)</h2>
     <p>「開始」を押すと、終了するまで自動で会話が続きます</p>
     
     <div class="btn-group">
@@ -45,10 +37,7 @@
     <div class="key-config" id="key-config-btn">APIキーを再設定する</div>
 </div>
 
-<script type="module">
-    // 🔥 最新のGoogle AI SDKモジュールをインポート
-    import { GoogleGenAI } from '@google/genai';
-
+<script>
     const SYSTEM_INSTRUCTION = `
     あなたはオシャレなカフェの若い女性店員です。
     【性格・特徴】
@@ -59,8 +48,9 @@
     - 注文が確定した後も会話は終了しません。他に追加の注文がないか尋ねたり、雑談に応じたりして接客を続けてください。
     `;
 
-    let ai = null;
-    let chatSession = null;
+    let GEMINI_API_KEY = "";
+    let GEMINI_URL = "";
+    let conversationHistory = [];
     let isSessionActive = false;
     let currentUtterance = null;
 
@@ -70,27 +60,28 @@
     const logDiv = document.getElementById('log');
     const keyConfigBtn = document.getElementById('key-config-btn');
 
-    // 🔒 安全対策：APIキーはブラウザのLocalStorageにのみ安全に保存
-    function getApiKey() {
-        let key = localStorage.getItem('user_gemini_api_key');
-        if (!key || key.includes("PLACEHOLDER")) {
-            key = prompt("Google AI StudioのAPIキーを入力してください\n（このキーはあなたのブラウザ内のみに安全に保存されます）:");
-            if (key) localStorage.setItem('user_gemini_api_key', key);
+    // APIキーの取得と設定
+    function initApiKey() {
+        let key = localStorage.getItem('user_gemini_api_key_v2');
+        if (!key || key.trim() === "" || key.includes("PLACEHOLDER")) {
+            key = prompt("Google AI StudioのAPIキーを入力してください\n（このキーはあなたのブラウザ内のみに安全に保存され、GitHub等へ公開されません）:");
+            if (key) localStorage.setItem('user_gemini_api_key_v2', key);
         }
-        return key;
+        
+        if (key) {
+            GEMINI_API_KEY = key;
+            // 💡 ドルマーク（$）とバッククォーツ（`）を使い、最新のモデルエンドポイントを正確に指定
+            GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+            statusDiv.innerText = "ボタンを押すと注文が始まります";
+        } else {
+            statusDiv.innerText = "⚠️ APIキーが設定されていません";
+        }
     }
 
-    // 初期起動時のチェック
-    const apiKey = getApiKey();
-    if (apiKey) {
-        ai = new GoogleGenAI({ apiKey: apiKey });
-        statusDiv.innerText = "ボタンを押すと注文が始まります";
-    } else {
-        statusDiv.innerText = "⚠️ APIキーが設定されていません";
-    }
+    initApiKey();
 
     keyConfigBtn.addEventListener('click', () => {
-        localStorage.removeItem('user_gemini_api_key');
+        localStorage.removeItem('user_gemini_api_key_v2');
         location.reload();
     });
 
@@ -102,8 +93,8 @@
     recognition.maxAlternatives = 1;
 
     // 会話開始
-    startBtn.addEventListener('click', async () => {
-        if (!ai) {
+    startBtn.addEventListener('click', () => {
+        if (!GEMINI_API_KEY) {
             alert("APIキーを正しく設定してください。");
             return;
         }
@@ -111,18 +102,8 @@
         isSessionActive = true;
         startBtn.disabled = true;
         stopBtn.disabled = false;
-
-        // 🔥 最新SDKのチャットセッション機能を使って文脈とシステムプロンプトを完全固定
-        try {
-            chatSession = ai.chats.create({
-                model: 'gemini-2.5-flash',
-                config: { systemInstruction: SYSTEM_INSTRUCTION }
-            });
-            startListening();
-        } catch(e) {
-            console.error(e);
-            statusDiv.innerText = "チャットの初期化に失敗しました。";
-        }
+        conversationHistory = []; // 履歴をリセット
+        startListening();
     });
 
     // 会話終了
@@ -133,7 +114,6 @@
         statusDiv.innerText = "会話を終了しました。またのご来店をお待ちしております。";
         startBtn.disabled = false;
         stopBtn.disabled = true;
-        chatSession = null;
     });
 
     function startListening() {
@@ -151,7 +131,7 @@
         let userText = "";
         try {
             // 指定された正しい多重配列の階層からテキストを取得
-            userText = event.results[0][0].transcript;
+            userText = event.results.transcript;
         } catch (e) {
             console.error("テキスト抽出に失敗:", e);
         }
@@ -161,19 +141,13 @@
         addLog(`あなた: ${userText}`);
         statusDiv.innerText = "🤖 店員が考えています...";
 
-        // 🔥 最新SDKによる安全なデータ送信と回答取得
-        try {
-            const result = await chatSession.sendMessage({ message: userText });
-            const aiResponse = result.text;
-            
-            addLog(`店員: ${aiResponse}`);
-            checkAndDownloadOrder(aiResponse);
-            speak(aiResponse);
-        } catch (error) {
-            console.error("Gemini APIエラー:", error);
-            addLog(`システム: 通信エラーが発生しました。キーが正しいか確認してください。`);
-            if (isSessionActive) startListening();
-        }
+        conversationHistory.push({ role: "user", parts: [{ text: userText }] });
+
+        const aiResponse = await fetchAIResponse();
+        addLog(`店員: ${aiResponse}`);
+        
+        checkAndDownloadOrder(aiResponse);
+        speak(aiResponse);
     };
 
     recognition.onend = () => {
@@ -181,6 +155,34 @@
             startListening();
         }
     };
+
+    // 正式なGemini API仕様に完全に準拠した通信処理
+    async function fetchAIResponse() {
+        try {
+            const response = await fetch(GEMINI_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: conversationHistory,
+                    systemInstruction: {
+                        parts: [{ text: SYSTEM_INSTRUCTION }]
+                    }
+                })
+            });
+            const data = await response.json();
+            
+            if (data.candidates && data.candidates && data.candidates.content && data.candidates.content.parts && data.candidates.content.parts) {
+                const aiText = data.candidates.content.parts.text;
+                conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
+                return aiText;
+            } else {
+                return "すみません、もう一度おっしゃっていただけますか？";
+            }
+        } catch (error) {
+            console.error("API通信エラー:", error);
+            return "すみません、通信エラーが起きてしまいました。もう一度お試しください。";
+        }
+    }
 
     function checkAndDownloadOrder(text) {
         let orderItem = "";
@@ -201,21 +203,19 @@
         }
     }
 
-    // ✨ 最新のブラウザ対応・高音質化TTS処理
+    // 滑らかな高品質音声を優先するTTS処理（Chromeフリーズバグ対策済み）
     function speak(text) {
         statusDiv.innerText = "🗣️ 店員が話しています...";
         
         currentUtterance = new SpeechSynthesisUtterance(text);
         currentUtterance.lang = 'ja-JP';
         
-        // ブラウザ内の利用可能な最新かつ最高品質の声を厳選
         const voices = window.speechSynthesis.getVoices();
         let selectedVoice = voices.find(v => v.lang.includes('ja') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
         if (!selectedVoice) selectedVoice = voices.find(v => v.lang.includes('ja'));
 
         if (selectedVoice) currentUtterance.voice = selectedVoice;
 
-        // 若い女性らしい自然なトーンにチューニング
         currentUtterance.pitch = 1.15;  
         currentUtterance.rate = 1.05;  
 
@@ -238,7 +238,6 @@
         logDiv.scrollTop = logDiv.scrollHeight;
     }
 
-    // 声のリストの読み込み完了を待つ（古いTTSバグへの根本対策）
     if (window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = () => {};
     }
