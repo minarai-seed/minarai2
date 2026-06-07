@@ -160,10 +160,32 @@
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'ja-JP';
         
+        // 💡 Windows / Chrome環境で利用可能な日本語の声リストを取得
         const voices = window.speechSynthesis.getVoices();
-        const jaVoice = voices.find(v => v.lang.includes('ja') && (v.name.includes('Google') || v.name.includes('Kyoko')));
-        if (jaVoice) utterance.voice = jaVoice;
-
+        
+        // 【選択肢A】Google Chrome標準の、最も滑らかで自然な女性の声（おすすめ）
+        let selectedVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Google'));
+        
+        // 【選択肢B】もしGoogleの声がなければ、Windows標準の女性の声「Haruka」を試す
+        if (!selectedVoice) {
+            selectedVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Haruka'));
+        }
+        
+        // 【選択肢C】それもなければ、最初に見つかった日本語の声を割り当てる
+        if (!selectedVoice) {
+            selectedVoice = voices.find(v => v.lang.includes('ja'));
+        }
+    
+        // 選んだ声を適用
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+            console.log("🗣️ 使用中の音声:", selectedVoice.name); // 開発画面に声の名前を表示
+        }
+    
+        // 💡 声の高さとスピードの微調整（ここでキャラクター感をさらに演出できます）
+        utterance.pitch = 1.1;  // 声の高さ（0.5 〜 2.0 / 少し高めにして若い女性らしく）
+        utterance.rate = 1.05;  // 話す速度（0.1 〜 10.0 / 少し早めにしてハキハキと）
+    
         utterance.onend = () => {
             if (hasOrdered) {
                 statusDiv.innerText = "ありがとうございました！またお待ちしております。";
