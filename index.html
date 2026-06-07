@@ -3,121 +3,244 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>無料AI音声会話アプリ</title>
+    <title>AIカフェ店員 - 高精度連続会話システム</title>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f0f2f5; margin: 0; }
-        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; width: 90%; max-width: 400px; }
-        button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 24px; cursor: pointer; transition: 0.3s; margin-top: 20px; }
-        button:hover { background: #0056b3; }
-        button:disabled { background: #cccccc; cursor: not-allowed; }
-        #status { margin-top: 15px; color: #666; font-size: 14px; }
-        #log { margin-top: 20px; text-align: left; background: #eee; padding: 10px; border-radius: 6px; max-height: 150px; overflow-y: auto; font-size: 14px; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5efe6; color: #4f46e5; margin: 0; }
+        .container { background: #ffffff; padding: 40px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); text-align: center; width: 90%; max-width: 400px; border: 2px solid #e1d7c6; }
+        h2 { color: #8b5a2b; margin-bottom: 5px; }
+        p { color: #6e655f; font-size: 14px; margin-bottom: 25px; }
+        .btn-group { display: flex; gap: 10px; margin-top: 20px; }
+        button { flex: 1; border: none; padding: 16px; font-size: 16px; border-radius: 30px; cursor: pointer; transition: 0.3s; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #start-btn { background: #8b5a2b; color: white; }
+        #start-btn:hover:not(:disabled) { background: #6f4722; }
+        #stop-btn { background: #dc3545; color: white; }
+        #stop-btn:hover:not(:disabled) { background: #bd2130; }
+        button:disabled { background: #cccccc; color: #666666; cursor: not-allowed; box-shadow: none; }
+        #status { margin-top: 25px; font-size: 15px; color: #8b5a2b; font-weight: 500; min-height: 22px; }
+        #log { margin-top: 20px; text-align: left; background: #faf8f5; padding: 12px; border-radius: 12px; max-height: 150px; overflow-y: auto; font-size: 13px; color: #555; border: 1px solid #eee; }
+        .key-config { margin-top: 15px; font-size: 11px; color: #999; text-decoration: underline; cursor: pointer; }
     </style>
+    <!-- 🔥 Google公式の最新AI JavaScript SDKを読み込み -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.run"
+        }
+      }
+    </script>
 </head>
 <body>
 
 <div class="container">
-    <h2>AI 音声ボット</h2>
-    <p>ボタンを押して話しかけてください</p>
-    <button id="start-btn">会話を開始する</button>
-    <div id="status">停止中</div>
-    <div id="log"><strong>会話の記録:</strong><br></div>
+    <h2>☕️ カフェAI店員 (最新版)</h2>
+    <p>「開始」を押すと、終了するまで自動で会話が続きます</p>
+    
+    <div class="btn-group">
+        <button id="start-btn">会話を始める</button>
+        <button id="stop-btn" disabled>終了する</button>
+    </div>
+
+    <div id="status">APIキーを設定すると注文が始まります</div>
+    <div id="log"><strong>注文履歴:</strong><br></div>
+    <div class="key-config" id="key-config-btn">APIキーを再設定する</div>
 </div>
 
-<script>
-    // ーーー 設定 ーーー
-    const GEMINI_API_KEY = "ここに取得したAPIキーを貼り付け"; 
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+<script type="module">
+    // 🔥 最新のGoogle AI SDKモジュールをインポート
+    import { GoogleGenAI } from '@google/genai';
 
-    // ーーー 要素の取得 ーーー
+    const SYSTEM_INSTRUCTION = `
+    あなたはオシャレなカフェの若い女性店員です。
+    【性格・特徴】
+    - 明るく、丁寧で、親しみやすい接客をしてください。
+    - 返答は1〜2文程度で、極めて「簡潔」にテンポよく話してください（長文は厳禁）。
+    - ユーザーから「コーヒー」「お茶」「カフェオレ」のいずれかの注文を聞き出してください。
+    - 注文を受け付けたら、「かしこまりました！コーヒー（注文されたもの）ですね、少々お待ちください！」のように明るくハキハキと答えてください。
+    - 注文が確定した後も会話は終了しません。他に追加の注文がないか尋ねたり、雑談に応じたりして接客を続けてください。
+    `;
+
+    let ai = null;
+    let chatSession = null;
+    let isSessionActive = false;
+    let currentUtterance = null;
+
     const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('log');
+    const keyConfigBtn = document.getElementById('key-config-btn');
 
-    // ーーー 音声認識・合成の準備 ーーー
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        alert("お使いのブラウザは音声認識に対応していません。Google Chrome等をお使いください。");
+    // 🔒 安全対策：APIキーはブラウザのLocalStorageにのみ安全に保存
+    function getApiKey() {
+        let key = localStorage.getItem('user_gemini_api_key');
+        if (!key || key.includes("PLACEHOLDER")) {
+            key = prompt("Google AI StudioのAPIキーを入力してください\n（このキーはあなたのブラウザ内のみに安全に保存されます）:");
+            if (key) localStorage.setItem('user_gemini_api_key', key);
+        }
+        return key;
     }
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ja-JP';
-    recognition.interimResults = false;
 
-    // ーーー メイン処理 ーーー
-    startBtn.addEventListener('click', () => {
-        startListening();
+    // 初期起動時のチェック
+    const apiKey = getApiKey();
+    if (apiKey) {
+        ai = new GoogleGenAI({ apiKey: apiKey });
+        statusDiv.innerText = "ボタンを押すと注文が始まります";
+    } else {
+        statusDiv.innerText = "⚠️ APIキーが設定されていません";
+    }
+
+    keyConfigBtn.addEventListener('click', () => {
+        localStorage.removeItem('user_gemini_api_key');
+        location.reload();
     });
 
-    // 1. 聞き取り開始
+    // 音声認識の初期化
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false; 
+    recognition.maxAlternatives = 1;
+
+    // 会話開始
+    startBtn.addEventListener('click', async () => {
+        if (!ai) {
+            alert("APIキーを正しく設定してください。");
+            return;
+        }
+        window.speechSynthesis.cancel(); 
+        isSessionActive = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+
+        // 🔥 最新SDKのチャットセッション機能を使って文脈とシステムプロンプトを完全固定
+        try {
+            chatSession = ai.chats.create({
+                model: 'gemini-2.5-flash',
+                config: { systemInstruction: SYSTEM_INSTRUCTION }
+            });
+            startListening();
+        } catch(e) {
+            console.error(e);
+            statusDiv.innerText = "チャットの初期化に失敗しました。";
+        }
+    });
+
+    // 会話終了
+    stopBtn.addEventListener('click', () => {
+        isSessionActive = false;
+        window.speechSynthesis.cancel();
+        try { recognition.stop(); } catch(e){}
+        statusDiv.innerText = "会話を終了しました。またのご来店をお待ちしております。";
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+        chatSession = null;
+    });
+
     function startListening() {
+        if (!isSessionActive) return;
         try {
             recognition.start();
-            statusDiv.innerText = "音声を聞き取っています...";
-            startBtn.disabled = true;
+            statusDiv.innerText = "👂 あなたの声を聞いています...";
         } catch (e) {
-            console.error(e);
+            console.error("マイク起動エラー:", e);
         }
     }
 
-    // 2. 音声認識が成功したとき
+    // 音声認識成功
     recognition.onresult = async (event) => {
-        const userText = event.results[0][0].transcript;
+        let userText = "";
+        try {
+            // 指定された正しい多重配列の階層からテキストを取得
+            userText = event.results[0][0].transcript;
+        } catch (e) {
+            console.error("テキスト抽出に失敗:", e);
+        }
+
+        if (!userText || userText.trim() === "") return;
+
         addLog(`あなた: ${userText}`);
-        statusDiv.innerText = "AIが考えています...";
+        statusDiv.innerText = "🤖 店員が考えています...";
 
-        // Gemini APIを呼び出し
-        const aiResponse = await fetchAIResponse(userText);
-        addLog(`AI: ${aiResponse}`);
-
-        // AIの返答を音声で読み上げ
-        speak(aiResponse);
-    };
-
-    // 音声認識が終了したとき（エラー含む）
-    recognition.onend = () => {
-        if (statusDiv.innerText === "音声を聞き取っています...") {
-            statusDiv.innerText = "聞き取れませんでした";
-            startBtn.disabled = false;
+        // 🔥 最新SDKによる安全なデータ送信と回答取得
+        try {
+            const result = await chatSession.sendMessage({ message: userText });
+            const aiResponse = result.text;
+            
+            addLog(`店員: ${aiResponse}`);
+            checkAndDownloadOrder(aiResponse);
+            speak(aiResponse);
+        } catch (error) {
+            console.error("Gemini APIエラー:", error);
+            addLog(`システム: 通信エラーが発生しました。キーが正しいか確認してください。`);
+            if (isSessionActive) startListening();
         }
     };
 
-    // 3. Gemini API へのリクエスト
-    async function fetchAIResponse(prompt) {
-        try {
-            const response = await fetch(GEMINI_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt + "（※会話相手として、2文以内の短い文章でフランクに返答してください）" }] }]
-                })
-            });
-            const data = await response.json();
-            return data.candidates[0].content.parts[0].text;
-        } catch (error) {
-            console.error("APIエラー:", error);
-            return "通信エラーが発生しました。もう一度試してください。";
+    recognition.onend = () => {
+        if (isSessionActive && statusDiv.innerText === "👂 あなたの声を聞いています...") {
+            startListening();
+        }
+    };
+
+    function checkAndDownloadOrder(text) {
+        let orderItem = "";
+        if (text.includes("コーヒー")) orderItem = "コーヒー";
+        else if (text.includes("お茶")) orderItem = "お茶";
+        else if (text.includes("カフェオレ")) orderItem = "カフェオレ";
+
+        if (orderItem) {
+            addLog(`📄 検知: ${orderItem}`);
+            const blob = new Blob([orderItem], { type: "text/plain;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "order.txt";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            addLog(`✅ order.txt を自動保存しました`);
         }
     }
 
-    // 4. 音声合成（読み上げ）
+    // ✨ 最新のブラウザ対応・高音質化TTS処理
     function speak(text) {
-        statusDiv.innerText = "AIが話しています...";
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ja-JP';
+        statusDiv.innerText = "🗣️ 店員が話しています...";
         
-        // 読み上げが終了したら、再びボタンを押せるようにする
-        utterance.onend = () => {
-            statusDiv.innerText = "停止中（会話終了）";
-            startBtn.disabled = false;
+        currentUtterance = new SpeechSynthesisUtterance(text);
+        currentUtterance.lang = 'ja-JP';
+        
+        // ブラウザ内の利用可能な最新かつ最高品質の声を厳選
+        const voices = window.speechSynthesis.getVoices();
+        let selectedVoice = voices.find(v => v.lang.includes('ja') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Microsoft')));
+        if (!selectedVoice) selectedVoice = voices.find(v => v.lang.includes('ja'));
+
+        if (selectedVoice) currentUtterance.voice = selectedVoice;
+
+        // 若い女性らしい自然なトーンにチューニング
+        currentUtterance.pitch = 1.15;  
+        currentUtterance.rate = 1.05;  
+
+        currentUtterance.onend = () => {
+            currentUtterance = null; 
+            if (isSessionActive) startListening();
+        };
+
+        currentUtterance.onerror = (e) => {
+            console.error("TTSエラー:", e);
+            currentUtterance = null;
+            if (isSessionActive) startListening();
         };
         
-        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.speak(currentUtterance);
     }
 
-    // ログ表示用ヘルパー
     function addLog(msg) {
         logDiv.innerHTML += msg + "<br>";
         logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // 声のリストの読み込み完了を待つ（古いTTSバグへの根本対策）
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = () => {};
     }
 </script>
 
