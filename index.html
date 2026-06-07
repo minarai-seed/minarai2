@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIカフェ店員 - 完全無料・安心音声会話</title>
+    <style>
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5efe6; color: #4f46e5; margin: 0; }
+        .container { background: #ffffff; padding: 40px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); text-align: center; width: 90%; max-width: 400px; border: 2px solid #e1d7c6; }
+        h2 { color: #8b5a2b; margin-bottom: 5px; }
+        p { color: #6e655f; font-size: 14px; margin-bottom: 25px; }
+        button { background: #8b5a2b; color: white; border: none; padding: 16px 32px; font-size: 18px; border-radius: 30px; cursor: pointer; transition: 0.3s; font-weight: bold; width: 100%; box-shadow: 0 4px 12px rgba(139,90,43,0.3); }
+        button:hover { background: #6f4722; }
+        button:disabled { background: #cccccc; cursor: not-allowed; box-shadow: none; }
+        #status { margin-top: 25px; font-size: 15px; color: #8b5a2b; font-weight: 500; }
+        #log { margin-top: 20px; text-align: left; background: #faf8f5; padding: 12px; border-radius: 12px; max-height: 150px; overflow-y: auto; font-size: 13px; color: #555; border: 1px solid #eee; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>☕️ カフェAI店員 (無料版)</h2>
+    <p>ボタンを押して注文を話しかけてください</p>
+    <button id="talk-btn">話しかける</button>
+    <div id="status">ボタンを押すと注文が始まります</div>
+    <div id="log"><strong>注文履歴:</strong><br></div>
+</div>
+
+<script>
+    // ーーー 設定 ーーー
+    const GEMINI_API_KEY = "ここに取得したAPIキーを貼り付け"; 
+    // 安全で無料枠の広い gemini-2.5-flash を使用
+    const GEMINI_URL = `https://googleapis.com{GEMINI_API_KEY}`;
+
+    // キャラクターとルールの固定プロンプト
+    const SYSTEM_INSTRUCTION = `
+    あなたはオシャレなカフェの若い女性店員です。
+    【性格・特徴】
+    - 明るく、丁寧で、親しみやすい接客をしてください。
+    - 返答は1〜2文程度で、極めて「簡潔」にテンポよく話してください（長文は厳禁）。
+    - ユーザーから「コーヒー」「お茶」「カフェオレ」のいずれかの注文を聞き出してください。
+    - 注文を受け付けたら、「かしこまりました！コーヒー（注文されたもの）ですね、少々お待ちください！」のように明るくハキハキと答えて会話を締めくくってください。
+    `;
+
+    // 会話の履歴（文脈）を保持する配列
+    let conversationHistory = [
+        { role: "user", parts: [{ text: SYSTEM_INSTRUCTION + "上記のキャラクター設定を以降の会話で厳守してください。最初の挨拶をお願いします。" }] }
+    ];
+
+    const talkBtn = document.getElementById('talk-btn');
+    const statusDiv = document.getElementById('status');
+    const logDiv = document.getElementById('log');
+    let hasOrdered = false;
+
+    // ーーー ブラウザ音声認識の準備 ーーー
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        alert("お使いのブラウザは音声認識に対応していません。Google Chrome等をお使いください。");
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'ja-JP';
+    recognition.interimResults = false;
+
+    // ボタンクリックで聞き取り開始
+    talkBtn.addEventListener('click', () => {
+        // 音声再生中なら停止
+        window.speechSynthesis.cancel();
+        startListening();
+    });
+
+    // 1. 声を聴き取る
+    function startListening() {
+        try {
+            recognition.start();
+            statusDiv.innerText = "ご注文をどうぞ！聞き取り中...";
+            talkBtn.disabled = true;
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // 2. 音声認識が完了したとき
+    recognition.onresult = async (event) => {
+        const userText = event.results[0][0].transcript;
+        addLog(`あなた: ${userText}`);
+        statusDiv.innerText = "店員が考えています...";
+
+        // 履歴にユーザーの発言を追加
+        conversationHistory.push({ role: "user", parts: [{ text: userText }] });
+
+        // Gemini APIを呼び出し（ここで1回カウントされるだけなので制限に安全）
+        const aiResponse = await fetchAIResponse();
+        addLog(`店員: ${aiResponse}`);
+
+        // AIのテキストから注文を裏でチェック
+        checkAndDownloadOrder(aiResponse);
+
+        // AIの返答をブラウザに喋らせる
+        speak(aiResponse);
+    };
+
+    // 音声認識が途中で終了したとき
+    recognition.onend = () => {
+        if (statusDiv.innerText === "ご注文をどうぞ！聞き取り中...") {
+            statusDiv.innerText = "聞き取れませんでした。もう一度お試しください。";
+            talkBtn.disabled = false;
+        }
+    };
+
+    // 3. Gemini API への通常リクエスト
+    async function fetchAIResponse() {
+        try {
+            const response = await fetch(GEMINI_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: conversationHistory // 過去の履歴も含めて送信して文脈を維持
+                })
+            });
+            const data = await response.json();
+            const aiText = data.candidates[0].content.parts[0].text;
+            
+            // 履歴にAIの返答も蓄積
+            conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
+            return aiText;
+        } catch (error) {
+            console.error("APIエラー:", error);
+            return "すみません、電波の調子が悪いみたいです。もう一度おっしゃっていただけますか？";
+        }
+    }
+
+    // 4. 特定キーワードの注文検知＆ファイル自動保存
+    function checkAndDownloadOrder(text) {
+        if (hasOrdered) return;
+
+        let orderItem = "";
+        if (text.includes("コーヒー")) { orderItem = "コーヒー"; }
+        else if (text.includes("お茶")) { orderItem = "お茶"; }
+        else if (text.includes("カフェオレ")) { orderItem = "カフェオレ"; }
+
+        if (orderItem) {
+            hasOrdered = true;
+            addLog(`📄 検知: ${orderItem}`);
+            
+            // order.txt のダウンロード
+            const blob = new Blob([orderItem], { type: "text/plain;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = "order.txt";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            addLog(`✅ order.txt を自動保存しました`);
+        }
+    }
+
+    // 5. 音声合成（ブラウザの標準の可愛い女性の声で喋る）
+    function speak(text) {
+        statusDiv.innerText = "店員が話しています...";
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP';
+        
+        // ブラウザに搭載されている日本語の声を割り当て（環境依存ですが、なるべく女性寄りを選択）
+        const voices = window.speechSynthesis.getVoices();
+        const jaVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Google'));
+        if (jaVoice) utterance.voice = jaVoice;
+
+        utterance.onend = () => {
+            if (hasOrdered) {
+                statusDiv.innerText = "ありがとうございました！またお待ちしております。";
+                talkBtn.disabled = true; // 注文完了後はボタンを無効化
+            } else {
+                statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
+                talkBtn.disabled = false;
+            }
+        };
+        
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // ログ書き込み
+    function addLog(msg) {
+        logDiv.innerHTML += msg + "<br>";
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // 音声合成の声リスト読み込み（一部ブラウザ対策）
+    window.speechSynthesis.onvoiceschanged = () => {};
+</script>
+
+</body>
+</html>
