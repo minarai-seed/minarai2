@@ -19,7 +19,7 @@
 <body>
 
 <div class="container">
-    <h2>☕️ カフェAI店員 (無料版)</h2>
+    <h2>☕️ MInaRAI カフェ店員</h2>
     <p>ボタンを押して注文を話しかけてください</p>
     <button id="talk-btn">話しかける</button>
     <div id="status">ボタンを押すと注文が始まります</div>
@@ -37,7 +37,8 @@
     - 明るく、丁寧で、親しみやすい接客をしてください。
     - 返答は1〜2文程度で、極めて「簡潔」にテンポよく話してください（長文は厳禁）。
     - ユーザーから「コーヒー」「お茶」「カフェオレ」のいずれかの注文を聞き出してください。
-    - 注文を受け付けたら、「かしこまりました！コーヒー（注文されたもの）ですね、少々お待ちください！」のように明るくハキハキと答えて会話を締めくくってください。
+    - 注文を受け付けたら、「かしこまりました！コーヒー（注文されたもの）ですね、少々お待ちください！」のように明るくハキハキと答えてください。
+    - 【重要】注文が確定した後も会話は終了しません。他に追加の注文がないか尋ねたり、雑談に応じたりして接客を続けてください。
     `;
 
     let conversationHistory = [];
@@ -45,9 +46,10 @@
     const talkBtn = document.getElementById('talk-btn');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('log');
-    let hasOrdered = false;
+    
+    // 💡 hasOrdered を無くし、何回でも注文ファイルをダウンロードできるように変更
+    // もし「1回の通話で1個しかファイルを落としたくない」場合は、このフラグを復活させます
 
-    // 🔥 【Chromeフリーズ対策】発話オブジェクトが消去されないように、関数の外側で永続的に保持する
     let currentUtterance = null;
 
     // 音声認識の初期化
@@ -58,7 +60,7 @@
     recognition.maxAlternatives = 1;
 
     talkBtn.addEventListener('click', () => {
-        window.speechSynthesis.cancel(); // 喋っている途中なら止める
+        window.speechSynthesis.cancel(); 
         startListening();
     });
 
@@ -75,7 +77,7 @@
     recognition.onresult = async (event) => {
         let userText = "";
         try {
-            userText = event.results[0][0].transcript;
+            userText = event.results.transcript;
         } catch (e) {
             console.error("テキスト抽出に失敗:", e);
         }
@@ -99,7 +101,6 @@
     };
 
     recognition.onend = () => {
-        // AIが考え中、または発話中でなければ、聞き取り失敗時にボタンを戻す
         if (statusDiv.innerText === "ご注文をどうぞ！聞き取り中...") {
             resetTalkButton();
         }
@@ -132,16 +133,14 @@
         }
     }
 
+    // 💡 【修正】一度注文を検知しても、次の注文をまた検知できるようにロックを解除
     function checkAndDownloadOrder(text) {
-        if (hasOrdered) return;
-
         let orderItem = "";
         if (text.includes("コーヒー")) { orderItem = "コーヒー"; }
         else if (text.includes("お茶")) { orderItem = "お茶"; }
         else if (text.includes("カフェオレ")) { orderItem = "カフェオレ"; }
 
         if (orderItem) {
-            hasOrdered = true;
             addLog(`📄 検知: ${orderItem}`);
             
             const blob = new Blob([orderItem], { type: "text/plain;charset=utf-8" });
@@ -156,11 +155,9 @@
         }
     }
 
-    // 🔥 【大修正】Chromeのオンエンドバグを完全に回避する音声合成関数
     function speak(text) {
         statusDiv.innerText = "店員が話しています...";
         
-        // 関数ローカルではなく、グローバル変数（外側の枠）に代入してメモリ解放を防ぐ
         currentUtterance = new SpeechSynthesisUtterance(text);
         currentUtterance.lang = 'ja-JP';
         
@@ -171,16 +168,14 @@
 
         if (selectedVoice) currentUtterance.voice = selectedVoice;
 
-        currentUtterance.pitch = 1.1;  // 声の高さ
-        currentUtterance.rate = 1.05;  // 話す速度
+        currentUtterance.pitch = 1.1;  
+        currentUtterance.rate = 1.05;  
 
-        // 終了イベントを確実に発火させる
         currentUtterance.onend = () => {
-            currentUtterance = null; // 使い終わったらメモリを開放
-            resetTalkButton();
+            currentUtterance = null; 
+            resetTalkButton(); // 💡 注文後も常にボタンを復活させる
         };
 
-        // 万が一エラーが起きても確実に固まるのを防ぐセーフティ
         currentUtterance.onerror = (e) => {
             console.error("発話エラー:", e);
             currentUtterance = null;
@@ -190,15 +185,10 @@
         window.speechSynthesis.speak(currentUtterance);
     }
 
-    // ボタンの状態を元に戻す共通処理
+    // 💡 【大修正】ボタンを絶対にロックしないようにステータス更新処理を書き換え
     function resetTalkButton() {
-        if (hasOrdered) {
-            statusDiv.innerText = "ありがとうございました！またお待ちしております。";
-            talkBtn.disabled = true;
-        } else {
-            statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
-            talkBtn.disabled = false;
-        }
+        statusDiv.innerText = "次の注文や追加の会話をどうぞ（ボタンを押してください）";
+        talkBtn.disabled = false; // 常にボタンを押せる状態をキープ
     }
 
     function addLog(msg) {
@@ -208,6 +198,7 @@
 
     window.speechSynthesis.onvoiceschanged = () => {};
 </script>
+
 
 
 </body>
