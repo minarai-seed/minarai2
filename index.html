@@ -27,9 +27,9 @@
 </div>
 
 <script>
-    // ーーー 【修正】GitHub Actionsが本物のキーに置き換える正しい記述 ーーー
+    // ーーー 設定（GitHub Actionsが本物のキーに置き換えます） ーーー
     const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const GEMINI_URL = `https://googleapis.com{GEMINI_API_KEY}`;
 
     const SYSTEM_INSTRUCTION = `
     あなたはオシャレなカフェの若い女性店員です。
@@ -40,13 +40,15 @@
     - 注文を受け付けたら、「かしこまりました！コーヒー（注文されたもの）ですね、少々お待ちください！」のように明るくハキハキと答えて会話を締めくくってください。
     `;
 
-    // 💡 履歴の管理方法をGeminiの標準リクエスト規約に完全準拠させました
     let conversationHistory = [];
 
     const talkBtn = document.getElementById('talk-btn');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('log');
     let hasOrdered = false;
+
+    // 🔥 【Chromeフリーズ対策】発話オブジェクトが消去されないように、関数の外側で永続的に保持する
+    let currentUtterance = null;
 
     // 音声認識の初期化
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -56,7 +58,11 @@
     recognition.maxAlternatives = 1;
 
     talkBtn.addEventListener('click', () => {
-        window.speechSynthesis.cancel(); 
+        window.speechSynthesis.cancel(); // 喋っている途中なら止める
+        startListening();
+    });
+
+    function startListening() {
         try {
             recognition.start();
             statusDiv.innerText = "ご注文をどうぞ！聞き取り中...";
@@ -64,12 +70,12 @@
         } catch (e) {
             console.error("開始エラー:", e);
         }
-    });
+    }
 
     recognition.onresult = async (event) => {
         let userText = "";
         try {
-            userText = event.results[0][0].transcript; // 正確な多重配列アクセス
+            userText = event.results[0][0].transcript;
         } catch (e) {
             console.error("テキスト抽出に失敗:", e);
         }
@@ -83,7 +89,6 @@
         addLog(`あなた: ${userText}`);
         statusDiv.innerText = "店員が考えています...";
 
-        // ユーザーの発言を履歴に追加
         conversationHistory.push({ role: "user", parts: [{ text: userText }] });
 
         const aiResponse = await fetchAIResponse();
@@ -94,13 +99,12 @@
     };
 
     recognition.onend = () => {
+        // AIが考え中、または発話中でなければ、聞き取り失敗時にボタンを戻す
         if (statusDiv.innerText === "ご注文をどうぞ！聞き取り中...") {
-            statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
-            talkBtn.disabled = false;
+            resetTalkButton();
         }
     };
 
-    // 💡 【大修正】URLとBodyの構造をGemini APIの正式仕様に完全修正
     async function fetchAIResponse() {
         try {
             const response = await fetch(GEMINI_URL, {
@@ -108,7 +112,6 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     contents: conversationHistory,
-                    // システム命令をAPI仕様どおりに独立して注入
                     systemInstruction: {
                         parts: [{ text: SYSTEM_INSTRUCTION }]
                     }
@@ -116,13 +119,11 @@
             });
             const data = await response.json();
             
-            // 安全にデータを抽出
             if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
                 const aiText = data.candidates[0].content.parts[0].text;
                 conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
                 return aiText;
             } else {
-                console.error("想定外のレスポンス構造:", data);
                 return "すみません、もう一度おっしゃっていただけますか？";
             }
         } catch (error) {
@@ -155,48 +156,49 @@
         }
     }
 
+    // 🔥 【大修正】Chromeのオンエンドバグを完全に回避する音声合成関数
     function speak(text) {
         statusDiv.innerText = "店員が話しています...";
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ja-JP';
         
-        // 💡 Windows / Chrome環境で利用可能な日本語の声リストを取得
+        // 関数ローカルではなく、グローバル変数（外側の枠）に代入してメモリ解放を防ぐ
+        currentUtterance = new SpeechSynthesisUtterance(text);
+        currentUtterance.lang = 'ja-JP';
+        
         const voices = window.speechSynthesis.getVoices();
-        
-        // 【選択肢A】Google Chrome標準の、最も滑らかで自然な女性の声（おすすめ）
         let selectedVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Google'));
-        
-        // 【選択肢B】もしGoogleの声がなければ、Windows標準の女性の声「Haruka」を試す
-        if (!selectedVoice) {
-            selectedVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Haruka'));
-        }
-        
-        // 【選択肢C】それもなければ、最初に見つかった日本語の声を割り当てる
-        if (!selectedVoice) {
-            selectedVoice = voices.find(v => v.lang.includes('ja'));
-        }
-    
-        // 選んだ声を適用
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
-            console.log("🗣️ 使用中の音声:", selectedVoice.name); // 開発画面に声の名前を表示
-        }
-    
-        // 💡 声の高さとスピードの微調整（ここでキャラクター感をさらに演出できます）
-        utterance.pitch = 1.1;  // 声の高さ（0.5 〜 2.0 / 少し高めにして若い女性らしく）
-        utterance.rate = 1.05;  // 話す速度（0.1 〜 10.0 / 少し早めにしてハキハキと）
-    
-        utterance.onend = () => {
-            if (hasOrdered) {
-                statusDiv.innerText = "ありがとうございました！またお待ちしております。";
-                talkBtn.disabled = true;
-            } else {
-                statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
-                talkBtn.disabled = false;
-            }
+        if (!selectedVoice) selectedVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Haruka'));
+        if (!selectedVoice) selectedVoice = voices.find(v => v.lang.includes('ja'));
+
+        if (selectedVoice) currentUtterance.voice = selectedVoice;
+
+        currentUtterance.pitch = 1.1;  // 声の高さ
+        currentUtterance.rate = 1.05;  // 話す速度
+
+        // 終了イベントを確実に発火させる
+        currentUtterance.onend = () => {
+            currentUtterance = null; // 使い終わったらメモリを開放
+            resetTalkButton();
+        };
+
+        // 万が一エラーが起きても確実に固まるのを防ぐセーフティ
+        currentUtterance.onerror = (e) => {
+            console.error("発話エラー:", e);
+            currentUtterance = null;
+            resetTalkButton();
         };
         
-        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.speak(currentUtterance);
+    }
+
+    // ボタンの状態を元に戻す共通処理
+    function resetTalkButton() {
+        if (hasOrdered) {
+            statusDiv.innerText = "ありがとうございました！またお待ちしております。";
+            talkBtn.disabled = true;
+        } else {
+            statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
+            talkBtn.disabled = false;
+        }
     }
 
     function addLog(msg) {
@@ -206,6 +208,7 @@
 
     window.speechSynthesis.onvoiceschanged = () => {};
 </script>
+
 
 </body>
 </html>
