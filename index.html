@@ -1,7 +1,7 @@
 // ーーー 設定 ーーー
-// ❌ ここに本物のAPIキーを絶対に直接貼り付けないでください
-let GEMINI_API_KEY = ""; 
-let GEMINI_URL = "";
+// GitHub Actionsによって、公開時に __GEMINI_API_KEY_PLACEHOLDER__ の部分が本物のキーに自動置換されます
+const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
+const GEMINI_URL = `https://googleapis.com{GEMINI_API_KEY}`;
 
 // ページが開いた瞬間に、ユーザーにAPIキーを入力させるポップアップを出す
 window.addEventListener('DOMContentLoaded', () => {
