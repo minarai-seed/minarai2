@@ -26,7 +26,6 @@
     <div id="log"><strong>注文履歴:</strong><br></div>
 </div>
 
-<!-- 👇 ここからJavaScriptプログラムが始まります -->
 <script>
     // ーーー 設定（GitHub Actionsが本物のキーに置き換えます） ーーー
     const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
@@ -50,31 +49,42 @@
     const logDiv = document.getElementById('log');
     let hasOrdered = false;
 
+    // ーーー 音声認識の初期化 ーーー
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-        alert("お使いのブラウザは音声認識に対応していません。Google Chrome等をお使いください。");
-    }
     const recognition = new SpeechRecognition();
     recognition.lang = 'ja-JP';
-    recognition.interimResults = false;
+    recognition.interimResults = false; 
+    recognition.maxAlternatives = 1;
 
     talkBtn.addEventListener('click', () => {
-        window.speechSynthesis.cancel();
-        startListening();
-    });
-
-    function startListening() {
+        window.speechSynthesis.cancel(); 
         try {
             recognition.start();
             statusDiv.innerText = "ご注文をどうぞ！聞き取り中...";
             talkBtn.disabled = true;
         } catch (e) {
-            console.error(e);
+            console.error("開始エラー:", e);
         }
-    }
+    });
 
+    // ✨ 【最重要修正】Chromeの最新データ構造からテキストを安全に100%抽出する記述
     recognition.onresult = async (event) => {
-        const userText = event.results.transcript;
+        console.log("音声認識イベント:", event);
+        
+        let userText = "";
+        try {
+            // Chromeの多重配列を安全に一番深いところまで指定して取り出す
+            userText = event.results[0][0].transcript;
+        } catch (e) {
+            console.error("テキスト抽出に失敗:", e);
+        }
+
+        if (!userText || userText.trim() === "") {
+            statusDiv.innerText = "うまく聞き取れませんでした。";
+            talkBtn.disabled = false;
+            return;
+        }
+
         addLog(`あなた: ${userText}`);
         statusDiv.innerText = "店員が考えています...";
 
@@ -87,13 +97,20 @@
         speak(aiResponse);
     };
 
+    recognition.onerror = (event) => {
+        console.error("音声認識エラー:", event.error);
+        statusDiv.innerText = "エラー: " + event.error;
+        talkBtn.disabled = false;
+    };
+
     recognition.onend = () => {
         if (statusDiv.innerText === "ご注文をどうぞ！聞き取り中...") {
-            statusDiv.innerText = "聞き取れませんでした。もう一度お試しください。";
+            statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
             talkBtn.disabled = false;
         }
     };
 
+    // ✨ 【最重要修正】Gemini APIからのデータ抽出パスの安全・確実化
     async function fetchAIResponse() {
         try {
             const response = await fetch(GEMINI_URL, {
@@ -102,12 +119,18 @@
                 body: JSON.stringify({ contents: conversationHistory })
             });
             const data = await response.json();
-            const aiText = data.candidates[0].content.parts[0].text;
+            console.log("Geminiレスポンス:", data);
             
-            conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
-            return aiText;
+            // 安全にプロパティの存在を確認しながらテキストを抽出する
+            if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
+                const aiText = data.candidates[0].content.parts[0].text;
+                conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
+                return aiText;
+            } else {
+                return "すみません、もう一度おっしゃっていただけますか？";
+            }
         } catch (error) {
-            console.error("APIエラー:", error);
+            console.error("API通信エラー:", error);
             return "すみません、電波の調子が悪いみたいです。もう一度おっしゃっていただけますか？";
         }
     }
@@ -142,7 +165,7 @@
         utterance.lang = 'ja-JP';
         
         const voices = window.speechSynthesis.getVoices();
-        const jaVoice = voices.find(v => v.lang.includes('ja') && v.name.includes('Google'));
+        const jaVoice = voices.find(v => v.lang.includes('ja') && (v.name.includes('Google') || v.name.includes('Kyoko')));
         if (jaVoice) utterance.voice = jaVoice;
 
         utterance.onend = () => {
@@ -165,7 +188,6 @@
 
     window.speechSynthesis.onvoiceschanged = () => {};
 </script>
-<!-- 👆 ここまでJavaScriptプログラム -->
 
 </body>
 </html>
