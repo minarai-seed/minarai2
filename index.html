@@ -27,9 +27,9 @@
 </div>
 
 <script>
-    // ーーー 設定（GitHub Actionsが本物のキーに置き換えます） ーーー
+    // ーーー 【修正】GitHub Actionsが本物のキーに置き換える正しい記述 ーーー
     const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
-    const GEMINI_URL = `https://googleapis.com{GEMINI_API_KEY}`;
+    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     const SYSTEM_INSTRUCTION = `
     あなたはオシャレなカフェの若い女性店員です。
@@ -40,16 +40,15 @@
     - 注文を受け付けたら、「かしこまりました！コーヒー（注文されたもの）ですね、少々お待ちください！」のように明るくハキハキと答えて会話を締めくくってください。
     `;
 
-    let conversationHistory = [
-        { role: "user", parts: [{ text: SYSTEM_INSTRUCTION + "上記のキャラクター設定を以降の会話で厳守してください。最初の挨拶をお願いします。" }] }
-    ];
+    // 💡 履歴の管理方法をGeminiの標準リクエスト規約に完全準拠させました
+    let conversationHistory = [];
 
     const talkBtn = document.getElementById('talk-btn');
     const statusDiv = document.getElementById('status');
     const logDiv = document.getElementById('log');
     let hasOrdered = false;
 
-    // ーーー 音声認識の初期化 ーーー
+    // 音声認識の初期化
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognition.lang = 'ja-JP';
@@ -67,14 +66,10 @@
         }
     });
 
-    // ✨ 【最重要修正】Chromeの最新データ構造からテキストを安全に100%抽出する記述
     recognition.onresult = async (event) => {
-        console.log("音声認識イベント:", event);
-        
         let userText = "";
         try {
-            // Chromeの多重配列を安全に一番深いところまで指定して取り出す
-            userText = event.results[0][0].transcript;
+            userText = event.results[0][0].transcript; // 正確な多重配列アクセス
         } catch (e) {
             console.error("テキスト抽出に失敗:", e);
         }
@@ -88,6 +83,7 @@
         addLog(`あなた: ${userText}`);
         statusDiv.innerText = "店員が考えています...";
 
+        // ユーザーの発言を履歴に追加
         conversationHistory.push({ role: "user", parts: [{ text: userText }] });
 
         const aiResponse = await fetchAIResponse();
@@ -97,12 +93,6 @@
         speak(aiResponse);
     };
 
-    recognition.onerror = (event) => {
-        console.error("音声認識エラー:", event.error);
-        statusDiv.innerText = "エラー: " + event.error;
-        talkBtn.disabled = false;
-    };
-
     recognition.onend = () => {
         if (statusDiv.innerText === "ご注文をどうぞ！聞き取り中...") {
             statusDiv.innerText = "次の注文をどうぞ（ボタンを押してください）";
@@ -110,28 +100,34 @@
         }
     };
 
-    // ✨ 【最重要修正】Gemini APIからのデータ抽出パスの安全・確実化
+    // 💡 【大修正】URLとBodyの構造をGemini APIの正式仕様に完全修正
     async function fetchAIResponse() {
         try {
             const response = await fetch(GEMINI_URL, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ contents: conversationHistory })
+                body: JSON.stringify({
+                    contents: conversationHistory,
+                    // システム命令をAPI仕様どおりに独立して注入
+                    systemInstruction: {
+                        parts: [{ text: SYSTEM_INSTRUCTION }]
+                    }
+                })
             });
             const data = await response.json();
-            console.log("Geminiレスポンス:", data);
             
-            // 安全にプロパティの存在を確認しながらテキストを抽出する
+            // 安全にデータを抽出
             if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
                 const aiText = data.candidates[0].content.parts[0].text;
                 conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
                 return aiText;
             } else {
+                console.error("想定外のレスポンス構造:", data);
                 return "すみません、もう一度おっしゃっていただけますか？";
             }
         } catch (error) {
             console.error("API通信エラー:", error);
-            return "すみません、電波の調子が悪いみたいです。もう一度おっしゃっていただけますか？";
+            return "すみません、通信エラーが起きてしまいました。もう一度お試しください。";
         }
     }
 
