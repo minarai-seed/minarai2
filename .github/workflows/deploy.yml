@@ -1,0 +1,38 @@
+name: Deploy to GitHub Pages with Secrets
+
+on:
+  push:
+    branches:
+      - main # あなたのメインブランチ名（masterの場合は master に書き換え）
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 💡 index.htmlのプレースホルダーを、GitHubに登録した本物のAPIキーに置き換える処理
+      - name: Inject API Key
+        run: |
+          sed -i 's/__GEMINI_API_KEY_PLACEHOLDER__/${{ secrets.GEMINI_API_KEY }}/g' index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
