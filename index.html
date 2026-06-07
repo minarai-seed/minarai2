@@ -29,7 +29,7 @@
 <script>
     // ーーー 設定（GitHub Actionsが本物のキーに置き換えます） ーーー
     const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
-    const GEMINI_URL = `https://googleapis.com{GEMINI_API_KEY}`;
+    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     const SYSTEM_INSTRUCTION = `
     あなたはオシャレなカフェの若い女性店員です。
