@@ -14,12 +14,10 @@ box-shadow: 0 10px 30px rgba(0,0,0,0.05); text-align: center; width: 90%; max-wi
  h2 { color: #8b5a2b; margin-bottom: 5px; }
  p { color: #6e655f; font-size: 14px; margin-bottom: 25px; }
  
- /* ボタンの共通スタイル */
  button { color: white; border: none; padding: 16px 32px; 
 font-size: 18px; border-radius: 30px; cursor: pointer; transition: 0.3s; font-weight: 
 bold; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 10px; }
  
- /* 開始・終了の状態別カラー */
  .start-mode { background: #8b5a2b; }
  .start-mode:hover { background: #6f4722; }
  .stop-mode { background: #dc2626; }
@@ -29,11 +27,6 @@ bold; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 10px; 
  #log { margin-top: 20px; text-align: left; background: #faf8f5; padding: 12px; 
 border-radius: 12px; max-height: 150px; overflow-y: auto; font-size: 13px; color: #555;
 border: 1px solid #eee; }
- 
- /* セキュリティ用のAPIキー入力欄 */
- .key-container { margin-bottom: 20px; text-align: left; }
- .key-container input { width: 93%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; }
- .key-container label { font-size: 12px; color: #8b5a2b; font-weight: bold; display: block; margin-bottom: 5px; }
  </style>
 </head>
 <body>
@@ -41,17 +34,14 @@ border: 1px solid #eee; }
  <h2>MInaRAI カフェAI店員</h2>
  <p>「会話を始める」を押すとミナライとずっと会話できます</p>
 
- <!-- 安全にテストするためのAPIキー入力欄 -->
- <div class="key-container">
-   <label for="api-key">Gemini API Key を入力：</label>
-   <input type="password" id="api-key" placeholder="AI Studioで取得した AIzaSy... から始まるキー">
- </div>
-
  <button id="talk-btn" class="start-mode">会話を始める</button>
- <div id="status">APIキーを入力してボタンを押してください</div>
+ <div id="status">ボタンを押すと注文が始まります</div>
  <div id="log"><strong>注文履歴:</strong><br></div>
 </div>
 <script>
+ // GitHub Actions によって自動的に本物のAPIキーへ置換されます
+ const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__";
+
  const SYSTEM_INSTRUCTION = `
  あなたはオシャレなカフェの若い女性店員「ミナライ」です。
  【性格・特徴】
@@ -65,74 +55,68 @@ border: 1px solid #eee; }
  const talkBtn = document.getElementById('talk-btn');
  const statusDiv = document.getElementById('status');
  const logDiv = document.getElementById('log');
- const apiKeyInput = document.getElementById('api-key');
  
- let isAppRunning = false;    // アプリ全体の稼働状態
- let isCoolDown = false;      // 5秒のウェイト制限中か
- let orderCounter = 1;        // order.txtの連番
+ let isAppRunning = false;    
+ let isCoolDown = false;      
+ let isSpeaking = false;      
+ let orderCounter = 1;        
 
- // 音声認識の初期化
  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
  const recognition = new SpeechRecognition();
  recognition.lang = 'ja-JP';
  recognition.interimResults = false; 
  recognition.maxAlternatives = 1;
 
- // ボタン押下時のトグル処理（開始 ⇔ 終了）
  talkBtn.addEventListener('click', () => {
    if (!isAppRunning) {
-     // 「開始」処理
-     if (!apiKeyInput.value.trim()) {
-       alert("GitHubへのキー流出を防ぐため、画面からAPIキーを入力してください。");
+     // キーが未置換のまま（ローカル実行時など）の場合は警告
+     if (GEMINI_API_KEY === "__GEMINI_API_KEY_PLACEHOLDER__") {
+       alert("APIキーが設定されていません。GitHubにプッシュしてActions経由でビルドしてください。");
        return;
      }
      window.speechSynthesis.cancel(); 
      isAppRunning = true;
-     apiKeyInput.disabled = true;
      
-     // ボタンを「終了」モードに変える
      talkBtn.innerText = "会話を終了する";
      talkBtn.className = "stop-mode";
      
      startListening();
    } else {
-     // 「終了」処理
      isAppRunning = false;
      isCoolDown = false;
+     isSpeaking = false;
      recognition.stop();
      window.speechSynthesis.cancel();
-     apiKeyInput.disabled = false;
      
-     // ボタンを「開始」モードに戻す
      talkBtn.innerText = "会話を始める";
      talkBtn.className = "start-mode";
      statusDiv.innerText = "会話を終了しました。";
    }
  });
 
- // 音声認識の開始
  function startListening() {
-   if (!isAppRunning || isCoolDown) return;
+   if (!isAppRunning || isCoolDown || isSpeaking) return;
    try {
      recognition.start();
      statusDiv.innerText = "ご注文をどうぞ！聞き取り中...";
    } catch (e) {
-     console.log("認識開始スキップ（すでに作動中など）:", e);
+     console.log("認識開始スキップ:", e);
    }
  }
 
- // 音声認識で言葉を拾ったとき
  recognition.onresult = async (event) => {
    let userText = "";
    try {
-     userText = event.results[0][0].transcript; // 元ソース基準の正確なインデックス取得
+     userText = event.results.transcript; 
    } catch (e) {
      console.error("テキスト抽出失敗:", e);
    }
    if (!userText || userText.trim() === "") return;
    
+   recognition.stop();
    addLog(`あなた: ${userText}`);
-   statusDiv.innerText = "店員が考えています...";
+   
+   startCoolDown();
    
    conversationHistory.push({ role: "user", parts: [{ text: userText }] });
    const aiResponse = await fetchAIResponse();
@@ -142,19 +126,16 @@ border: 1px solid #eee; }
    speak(aiResponse);
  };
 
- // 音声認識が自然に途切れたときの自動ループ処理
  recognition.onend = () => {
-   // アプリ起動中かつ、5秒ウェイト中でなければ、自動で聞き取りを再開
-   if (isAppRunning && !isCoolDown) {
+   if (isAppRunning && !isCoolDown && !isSpeaking && statusDiv.innerText.includes("聞き取り中")) {
      startListening();
    }
  };
 
- // 元のソースをベースにした確実なAPI通信処理
  async function fetchAIResponse() {
-   const apiKey = apiKeyInput.value.trim();
-   // 元のソースが使用していた標準モデルのエンドポイント
-   const url = `https://googleapis.com{apiKey}`;
+   // 置換された本物のGEMINI_API_KEYを使用
+//   const url = `https://googleapis.com{GEMINI_API_KEY}`;
+   const url =  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
    try {
      const response = await fetch(url, {
@@ -169,10 +150,9 @@ border: 1px solid #eee; }
      });
      const data = await response.json();
      
-     // 元のソースのデータ構造解析ロジックを忠実に再現
-     if (data.candidates && data.candidates[0] && data.candidates[0].content && 
-         data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
-       const aiText = data.candidates[0].content.parts[0].text;
+     if (data.candidates && data.candidates && data.candidates.content && 
+         data.candidates.content.parts && data.candidates.content.parts) {
+       const aiText = data.candidates.content.parts.text;
        conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
        return aiText;
      } else {
@@ -185,7 +165,6 @@ border: 1px solid #eee; }
    }
  }
 
- // 注文検知と連番ダウンロード
  function checkAndDownloadOrder(text) {
    let orderItem = "";
    if (text.includes("コーヒー")) { orderItem = "コーヒー"; }
@@ -198,7 +177,7 @@ border: 1px solid #eee; }
      const blob = new Blob([orderItem], { type: "text/plain;charset=utf-8" });
      const a = document.createElement("a");
      a.href = URL.createObjectURL(blob);
-     a.download = `order_${orderCounter}.txt`; // 順番にダウンロードできるように連番を付与
+     a.download = `order_${orderCounter}.txt`; 
      document.body.appendChild(a);
      a.click();
      document.body.removeChild(a);
@@ -208,11 +187,14 @@ border: 1px solid #eee; }
    }
  }
 
- // 音声合成（読み上げ）
  function speak(text) {
-   if (!isAppRunning) return; // 途中で終了ボタンが押されていたら発話させない
+   if (!isAppRunning) return; 
+   isSpeaking = true; 
    
-   statusDiv.innerText = "店員が話しています...";
+   if (!isCoolDown) {
+     statusDiv.innerText = "店員が話しています...";
+   }
+   
    const utterance = new SpeechSynthesisUtterance(text);
    utterance.lang = 'ja-JP';
    
@@ -231,38 +213,42 @@ border: 1px solid #eee; }
    utterance.pitch = 1.1; 
    utterance.rate = 1.05; 
    
-   // AIが話し終わったら5秒間の入力制限カウントダウンを開始
    utterance.onend = () => {
-     if (isAppRunning) {
-       startCoolDown(); 
+     isSpeaking = false; 
+     if (isAppRunning && !isCoolDown) {
+       statusDiv.innerText = "次の注文をどうぞ！聞き取り中...";
+       startListening();
      }
    };
    
    window.speechSynthesis.speak(utterance);
  }
 
- // 5秒間のリクエスト制限案内処理
  function startCoolDown() {
    isCoolDown = true;
-   recognition.stop(); // カウントダウン中はマイク入力を遮断
    let timeLeft = 5;
    
-   // 1秒ごとに画面の案内を更新
+   statusDiv.innerText = `⚠️ 制限緩和のため、あと ${timeLeft} 秒お待ちください...`;
+   
    const interval = setInterval(() => {
      if (!isAppRunning) {
-       // カウントダウンの途中で終了ボタンが押されたらタイマーを即座に破棄
        clearInterval(interval);
        return;
      }
+     timeLeft--;
      
      if (timeLeft > 0) {
        statusDiv.innerText = `⚠️ 制限緩和のため、あと ${timeLeft} 秒お待ちください...`;
-       timeLeft--;
      } else {
        clearInterval(interval);
        isCoolDown = false;
-       statusDiv.innerText = "次の注文をどうぞ！聞き取り中...";
-       startListening(); // 5秒経ったら自動で次の聞き取りループへ
+       
+       if (!isSpeaking) {
+         statusDiv.innerText = "次の注文をどうぞ！聞き取り中...";
+         startListening(); 
+       } else {
+         statusDiv.innerText = "店員が話しています...";
+       }
      }
    }, 1000);
  }
