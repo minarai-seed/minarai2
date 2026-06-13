@@ -125,11 +125,11 @@ border: 1px solid #eee; }
 
  // 画面から取得したAPIキーを使って直接Gemini APIを叩く（最新モデル: gemini-2.5-flash）
  async function fetchAIResponse() {
-   const apiKey = apiKeyInput.value.trim();
+//   const apiKey = apiKeyInput.value.trim();
    // 最新の gemini-2.5-flash のエンドポイント
 //   const url = `https://googleapis.com{apiKey}`;
     const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     try {
      const response = await fetch(url, {
