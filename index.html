@@ -67,9 +67,12 @@ border: 1px solid #eee; }
  recognition.interimResults = false; 
  recognition.maxAlternatives = 1;
 
- // 会話開始・終了ボタンのイベント処理（画面チェック処理を撤廃）
  talkBtn.addEventListener('click', () => {
    if (!isAppRunning) {
+     if (GEMINI_API_KEY === "__GEMINI_API_KEY_PLACEHOLDER__") {
+       alert("APIキーがまだ埋め込まれていません。GitHubにプッシュしてActionsの自動ビルド（置換）を待つか、Secretの設定を確認してください。");
+       return;
+     }
      window.speechSynthesis.cancel(); 
      isAppRunning = true;
      
@@ -103,7 +106,7 @@ border: 1px solid #eee; }
  recognition.onresult = async (event) => {
    let userText = "";
    try {
-     userText = event.results.transcript; 
+     userText = event.results[0][0].transcript; 
    } catch (e) {
      console.error("テキスト抽出失敗:", e);
    }
@@ -112,6 +115,7 @@ border: 1px solid #eee; }
    recognition.stop();
    addLog(`あなた: ${userText}`);
    
+   // 送信した「瞬間」から5秒タイマーを開始（1分間12回の制限を厳守）
    startCoolDown();
    
    conversationHistory.push({ role: "user", parts: [{ text: userText }] });
@@ -128,8 +132,9 @@ border: 1px solid #eee; }
    }
  };
 
- // 最新モデル「gemini-2.5-flash」に対応したREST API通信処理
+ // 【最新API仕様】正しいエンドポイントURLと確実なJSON解析ロジック
  async function fetchAIResponse() {
+   // 最新モデル gemini-2.5-flash を公式ドメインで叩く
 //   const url = `https://googleapis.com{GEMINI_API_KEY}`;
    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -146,17 +151,20 @@ border: 1px solid #eee; }
      });
      const data = await response.json();
      
-     if (data.candidates && data.candidates[0] && data.candidates[0].content && 
-         data.candidates[0].content.parts && data.candidates[0].content.parts[0]) {
+     // 【修正】Gemini API公式仕様に沿った正確な配列インデックス指定
+     if (data && data.candidates && data.candidates[0] && 
+         data.candidates[0].content && data.candidates[0].content.parts && 
+         data.candidates[0].content.parts[0]) {
+       
        const aiText = data.candidates[0].content.parts[0].text;
        conversationHistory.push({ role: "model", parts: [{ text: aiText }] });
        return aiText;
      } else {
-       console.error("APIエラーまたは構造変化:", data);
-       return "すみません、もう一度おっしゃっていただけますか？";
+       console.error("APIレスポンスの構造異常:", data);
+       return "すみません、うまく聞き取れませんでした。もう一度おっしゃっていただけますか？";
      }
    } catch (error) {
-     console.error("通信エラー:", error);
+     console.error("通信エラー詳細:", error);
      return "すみません、通信エラーが起きてしまいました。";
    }
  }
