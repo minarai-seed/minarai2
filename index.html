@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AIカフェ店員 - 完全無料・安心音声会話</title>
+    <title>AIカフェ店員</title>
     <style>
         body { font-family: 'Helvetica Neue', Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5efe6; color: #4f46e5; margin: 0; }
         .container { background: #ffffff; padding: 40px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); text-align: center; width: 90%; max-width: 400px; border: 2px solid #e1d7c6; }
@@ -19,7 +19,7 @@
 <body>
 
 <div class="container">
-    <h2>☕️ カフェAI店員 (無料版)</h2>
+    <h2>☕️カフェAI店員</h2>
     <p>ボタンを押して注文を話しかけてください</p>
     <button id="talk-btn">話しかける</button>
     <div id="status">ボタンを押すと注文が始まります</div>
@@ -32,7 +32,7 @@
     const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
     const SYSTEM_INSTRUCTION = `
-    あなたはオシャレなカフェの若い女性店員です。
+    あなたはオシャレなカフェの若い女性店員「ミナライ」です。
     【性格・特徴】
     - 明るく、丁寧で、親しみやすい接客をしてください。
     - 返答は1〜2文程度で、極めて「簡潔」にテンポよく話してください（長文は厳禁）。
