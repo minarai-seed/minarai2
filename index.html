@@ -127,9 +127,11 @@ border: 1px solid #eee; }
  async function fetchAIResponse() {
    const apiKey = apiKeyInput.value.trim();
    // 最新の gemini-2.5-flash のエンドポイント
-   const url = `https://googleapis.com{apiKey}`;
+//   const url = `https://googleapis.com{apiKey}`;
+    const GEMINI_API_KEY = "__GEMINI_API_KEY_PLACEHOLDER__"; 
+    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-   try {
+    try {
      const response = await fetch(url, {
        method: "POST",
        headers: { "Content-Type": "application/json" },
